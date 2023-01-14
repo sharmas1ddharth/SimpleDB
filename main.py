@@ -95,6 +95,7 @@ class ProtocolHandler:
         else:
             raise CommandError(f'unrecognized type: {type(data)}')
 
+
 class Server:
     def __init__(self, host='127.0.0.1', port=31337, max_clients=64):
         self._pool = Pool(max_clients)
@@ -106,6 +107,45 @@ class Server:
         self._protocol = ProtocolHandler()
         self._kv = {}
 
+        self._commands = self.get_commands()
+
+    def get_commands(self):
+        return {
+                    'GET': self.get,
+                    'SET': self.set,
+                    'DELETE': self.delete,
+                    'FLUSH': self.flush,
+                    'MGET': self.mget,
+                    'MSET': self.mset
+                }
+
+    def get(self, key):
+        return self._kv.get(key)
+
+    def set(self, key, value):
+        self._kv[key] = value
+        return 1
+
+    def delete(self, key):
+        if key in self._kv:
+            del self._kv[key]
+            return 1
+        return 0
+
+    def flush(self):
+        kvlen = len(self._kv)
+        self._kv.clear()
+        return kvlen
+
+    def mget(self, *keys):
+        return [self._kv.get(key) for key in keys]
+
+    def mset(self, *items):
+        data = zip(items[::2], items[1::2])
+        for key, value in data:
+            self._kv[key] = value
+        return len(data)
+    
     def connection_handler(self, conn, address):
         # Convert "conn" (a socket object) into a file-like object.
         socket_file = conn.makefile('rwb')
@@ -127,7 +167,18 @@ class Server:
     def get_response(self, data):
         # Unpack the data send by the client, execute the
         # command they specified, and pass back the return value
-        pass
+        if not isinstance(data, list):
+            try:
+                data = data.split()
+            except:
+                raise CommandError('Request must be list or simple string')
+
+        if not data:
+            raise CommandError('Missing command')
+
+        command = data[0].upper()
+        if command not in self._commands:
+            raise CommandError(f'Unrecognized command: {command}')
 
     def run(self):
         self._server.serve_forever()
